@@ -22,6 +22,9 @@ pip install pyyaml bleak
 python ble-pics-viewer.py
 ```
 
+## デモ
+https://github.com/user-attachments/assets/71077409-656c-471e-b071-970c37c89461
+
 ## 法令遵守に関する注記（Legal Notice）
 
 本プログラムが対象とする PICS の BLE アドバタイズ信号は、道路交通信号機などの公共インフラ設備から **不特定多数に向けて送信される公開電波** です。この電波には、個人を識別できる情報や秘匿性のある通信内容は含まれておらず、以下の各法令で保護対象とされる「通信の秘密」や「個人情報」には 該当しません。
