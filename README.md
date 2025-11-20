@@ -12,9 +12,18 @@
 ## 事前準備
 - Pythonの動作環境を構築してください
   -  Python 3.14.0 にて動作確認
-- 以下のパッケージをpipでインストール
+
+- 仮想環境を構築してください
+
 ```bash
-pip install pyyaml bleak
+python -m venv .
+source bin/activate
+```
+
+- 以下のパッケージをpipでインストール
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## 起動
