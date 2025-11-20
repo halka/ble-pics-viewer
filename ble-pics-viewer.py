@@ -3,22 +3,25 @@ from datetime import datetime, timedelta
 from bleak import BleakScanner
 from collections import deque
 
+
 # =========================================
 # PICS データ解析
 # =========================================
 def process_pics(data):
     pics_info = {}
     msg_type = data[2]
-    pics_info['message_type'] = msg_type
-    pics_info['message_id'] = data[3]
-    pics_info['intersection_id'] = "".join([hex(num)[2:].upper().zfill(2) for num in data[6:10]])
+    pics_info["message_type"] = msg_type
+    pics_info["message_id"] = data[3]
+    pics_info["intersection_id"] = "".join(
+        [hex(num)[2:].upper().zfill(2) for num in data[6:10]]
+    )
 
     if msg_type == 0:
-        identifier = bytes(data[10:24]).decode(errors='ignore').strip('\x00')
-        pics_info['identifier'] = identifier
+        identifier = bytes(data[10:24]).decode(errors="ignore").strip("\x00")
+        pics_info["identifier"] = identifier
     elif msg_type == 1:
-        pics_info['latitude']  = struct.unpack('>i', bytes(data[10:14]))[0] / 1_000_000
-        pics_info['longitude'] = struct.unpack('>i', bytes(data[14:18]))[0] / 1_000_000
+        pics_info["latitude"] = struct.unpack(">i", bytes(data[10:14]))[0] / 1_000_000
+        pics_info["longitude"] = struct.unpack(">i", bytes(data[14:18]))[0] / 1_000_000
     elif msg_type == 2:
         pedestrian_signals = []
         for i in range(6):
@@ -26,26 +29,34 @@ def process_pics(data):
                 signal_byte = data[10 + i]
                 remaining_time = int((signal_byte >> 4) & 0x0F)
                 signal_state = int(signal_byte & 0x0F)
-                pedestrian_signals.append({
-                    'remaining_time': -1 if remaining_time >= 8 else remaining_time + 1,
-                    'signal_state': {
-                        0: 'NoSignal', 1: 'Red', 2: 'BlinkGreen', 3: 'Green', 4: 'None'
-                    }.get(signal_state, 'Unknown')
-                })
-        pics_info['pedestrian_signals'] = pedestrian_signals
+                pedestrian_signals.append(
+                    {
+                        "remaining_time": (
+                            -1 if remaining_time >= 8 else remaining_time + 1
+                        ),
+                        "signal_state": {
+                            0: "NoSignal",
+                            1: "Red",
+                            2: "BlinkGreen",
+                            3: "Green",
+                            4: "None",
+                        }.get(signal_state, "Unknown"),
+                    }
+                )
+        pics_info["pedestrian_signals"] = pedestrian_signals
     return pics_info
 
 
 def state_symbol(state):
     symbols = {
-        'NoSignal': ' ',
-        'Red': '🔴',
-        'BlinkGreen': '🟢(B)',
-        'Green': '🟢',
-        'None': '・',
-        'Unknown': '?'
+        "NoSignal": " ",
+        "Red": "🔴",
+        "BlinkGreen": "🟢(B)",
+        "Green": "🟢",
+        "None": "・",
+        "Unknown": "?",
     }
-    return symbols.get(state, '?')
+    return symbols.get(state, "?")
 
 
 # =========================================
@@ -55,7 +66,12 @@ latest_info = None
 latest_raw = None
 latest_timestamp = None
 last_signal_info = None
-log_history = deque(maxlen=5)  # 履歴は最大5件のみ
+log_count = 100
+log_history = deque(maxlen=log_count)
+
+json_intersection_data = None
+with open("intersection.json", "r", encoding="utf-8") as f:
+    json_intersection_data = json.load(f)
 
 
 # =========================================
@@ -78,26 +94,65 @@ def detection_callback(device, advertisement_data):
         latest_timestamp = datetime.now()
 
         # ---- Type2のときのみ信号更新 ----
-        if pics_info.get('message_type') == 2:
+        if pics_info.get("message_type") == 2:
             last_signal_info = pics_info  # 保持
-            s1 = pics_info['pedestrian_signals'][0]
-            s2 = pics_info['pedestrian_signals'][1]
-            log_history.append({"time": latest_timestamp, "s1": s1, "s2": s2})
+            id = pics_info["intersection_id"]
+            intersection_name = json_intersection_data.get(id, {}).get(
+                "Name", "不明な交差点"
+            )
+            s1 = pics_info["pedestrian_signals"][0]
+            s2 = pics_info["pedestrian_signals"][1]
+            s3 = pics_info["pedestrian_signals"][2]
+            s4 = pics_info["pedestrian_signals"][3]
+            s5 = pics_info["pedestrian_signals"][4]
+            s6 = pics_info["pedestrian_signals"][5]
+
+            log_history.append(
+                {
+                    "time": latest_timestamp,
+                    "id": id,
+                    "name": intersection_name,
+                    "s1": s1,
+                    "s2": s2,
+                    "s3": s3,
+                    "s4": s4,
+                    "s5": s5,
+                    "s6": s6,
+                }
+            )
 
         # ---- 画面更新 ----
         os.system("clear")
         print("=== リアルタイム PICS 信号監視 ===")
-        print("時刻(ms)           | 東西 | 南北 | 残り(東西,南北)")
-        print("----------------------------------------------")
+        print(
+            "時刻(ms) |  ID  |          交差点名          |  S1  |  S2  |  S3  |  S4  |  S5  |  S6  | 残時間(s)"
+        )
+        print(
+            "-----------------------------------------------------------------------------------------------"
+        )
 
         # Type2が届いていない場合でも前回の信号を保持表示
         if last_signal_info:
-            s1 = last_signal_info['pedestrian_signals'][0]
-            s2 = last_signal_info['pedestrian_signals'][1]
-            print(f"{latest_timestamp.strftime('%H:%M:%S.%f')[:-3]} | "
-                  f"{state_symbol(s1['signal_state']):^6} | "
-                  f"{state_symbol(s2['signal_state']):^6} | "
-                  f"({s1['remaining_time']},{s2['remaining_time']})")
+            s1 = last_signal_info["pedestrian_signals"][0]
+            s2 = last_signal_info["pedestrian_signals"][1]
+            s3 = last_signal_info["pedestrian_signals"][2]
+            s4 = last_signal_info["pedestrian_signals"][3]
+            s5 = last_signal_info["pedestrian_signals"][4]
+            s6 = last_signal_info["pedestrian_signals"][5]
+            print(
+                f"{latest_timestamp.strftime('%H:%M:%S.%f')[:-3]} | "
+                f"{pics_info['intersection_id']:^4} | "
+                f"{intersection_name:^28} | "
+                f"{state_symbol(s1['signal_state']):^6} | "
+                f"{state_symbol(s2['signal_state']):^6} | "
+                f"{state_symbol(s3['signal_state']):^6} | "
+                f"{state_symbol(s4['signal_state']):^6} | "
+                f"{state_symbol(s5['signal_state']):^6} | "
+                f"{state_symbol(s6['signal_state']):^6} | "
+                f"({s1['remaining_time']},{s2['remaining_time']},"
+                f"{s3['remaining_time']},{s4['remaining_time']},"
+                f"{s5['remaining_time']},{s6['remaining_time']})"
+            )
         else:
             print("(受信待ち...)")
         print("\n")
@@ -110,20 +165,30 @@ def detection_callback(device, advertisement_data):
         print(hex_dump)
         print("\n[解析結果]")
         print(json.dumps(pics_info, ensure_ascii=False, indent=2))
+        print(
+            json_intersection_data.get(
+                pics_info["intersection_id"], {}, ensure_ascii=False, indent=2
+            )
+        )
         print("----------------------------------------------\n")
 
-        # ---- 履歴表示（最大5件）----
+        # ---- 履歴表示----
         now = datetime.now()
-        print("=== 過去30秒間の信号履歴（最大5件） ===")
-        recent_entries = [entry for entry in list(log_history)
-                          if now - entry["time"] <= timedelta(seconds=30)]
+        print(f"=== 信号履歴（最大{log_count}件） ===")
+        recent_entries = [
+            entry
+            for entry in list(log_history)
+            if now - entry["time"] <= timedelta(seconds=30)
+        ]
         for entry in recent_entries:
             t = entry["time"].strftime("%H:%M:%S.%f")[:-3]
             s1 = entry["s1"]
             s2 = entry["s2"]
-            print(f"{t} | {state_symbol(s1['signal_state']):^6} | "
-                  f"{state_symbol(s2['signal_state']):^6} | "
-                  f"({s1['remaining_time']},{s2['remaining_time']})")
+            print(
+                f"{t} | {state_symbol(s1['signal_state']):^6} | "
+                f"{state_symbol(s2['signal_state']):^6} | "
+                f"({s1['remaining_time']},{s2['remaining_time']})"
+            )
         print("----------------------------------------------")
 
 
@@ -151,5 +216,6 @@ if __name__ == "__main__":
         asyncio.run(scan_ble_live_monitor_hold_last())
     except RuntimeError:
         import nest_asyncio
+
         nest_asyncio.apply()
         asyncio.run(scan_ble_live_monitor_hold_last())
